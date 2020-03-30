@@ -403,7 +403,7 @@ ArmProcess::argsInit(int pageSize, IntRegIndex spIndex)
 
     // figure out argc
     IntType argc = argv.size();
-    IntType guestArgc = ArmISA::htog(argc);
+    IntType guestArgc = htole(argc);
 
     //Write out the sentry void *
     IntType sentry_NULL = 0;
@@ -510,21 +510,6 @@ RegVal
 ArmProcess64::getSyscallArg(ThreadContext *tc, int &i, int width)
 {
     return getSyscallArg(tc, i);
-}
-
-
-void
-ArmProcess32::setSyscallArg(ThreadContext *tc, int i, RegVal val)
-{
-    assert(i < 6);
-    tc->setIntReg(ArgumentReg0 + i, val);
-}
-
-void
-ArmProcess64::setSyscallArg(ThreadContext *tc, int i, RegVal val)
-{
-    assert(i < 8);
-    tc->setIntReg(ArgumentReg0 + i, val);
 }
 
 void

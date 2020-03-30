@@ -30,7 +30,10 @@
 #ifndef __ARCH_ARM_FASTMODEL_GIC_GIC_HH__
 #define __ARCH_ARM_FASTMODEL_GIC_GIC_HH__
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Woverloaded-virtual"
 #include <amba_pv.h>
+#pragma GCC diagnostic pop
 
 #include <memory>
 
@@ -79,6 +82,7 @@ class SCGIC : public scx_evs_GIC
     };
 
     std::unique_ptr<Terminator> terminator;
+    const SCFastModelGICParams &_params;
 
   public:
     SCGIC(const SCFastModelGICParams &params, sc_core::sc_module_name _name);
@@ -94,6 +98,11 @@ class SCGIC : public scx_evs_GIC
         scx_evs_GIC::start_of_simulation();
     }
     void start_of_simulation() override {}
+    const SCFastModelGICParams &
+    params()
+    {
+        return _params;
+    }
 };
 
 // This class pairs with the one above to implement the receiving end of gem5's
@@ -124,6 +133,8 @@ class GIC : public BaseGic
 
     void sendPPInt(uint32_t num, uint32_t cpu) override;
     void clearPPInt(uint32_t num, uint32_t cpu) override;
+
+    bool supportsVersion(GicVersion version) override;
 
     AddrRangeList getAddrRanges() const override { return AddrRangeList(); }
     Tick read(PacketPtr pkt) override { return 0; }

@@ -102,7 +102,11 @@ class CheckerThreadContext : public ThreadContext
     {
         actualTC->descheduleInstCountEvent(event);
     }
-    Tick getCurrentInstCount() override { return getCurrentInstCount(); }
+    Tick
+    getCurrentInstCount() override
+    {
+        return actualTC->getCurrentInstCount();
+    }
 
     BaseCPU *getCpuPtr() override { return actualTC->getCpuPtr(); }
 
@@ -138,7 +142,7 @@ class CheckerThreadContext : public ThreadContext
         return checkerCPU;
     }
 
-    TheISA::ISA *getIsaPtr() override { return actualTC->getIsaPtr(); }
+    BaseISA *getIsaPtr() override { return actualTC->getIsaPtr(); }
 
     TheISA::Decoder *
     getDecoderPtr() override
@@ -180,9 +184,9 @@ class CheckerThreadContext : public ThreadContext
 
     /** Executes a syscall in SE mode. */
     void
-    syscall(int64_t callnum, Fault *fault) override
+    syscall(Fault *fault) override
     {
-        return actualTC->syscall(callnum, fault);
+        return actualTC->syscall(fault);
     }
 
     Status status() const override { return actualTC->status(); }

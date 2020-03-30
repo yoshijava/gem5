@@ -693,7 +693,7 @@ ArmFault::invoke64(ThreadContext *tc, const StaticInstPtr &inst)
     ArmStaticInst *arm_inst M5_VAR_USED = instrAnnotate(inst);
 
     // Set PC to start of exception handler
-    Addr new_pc = purifyTaggedAddr(vec_address, tc, toEL);
+    Addr new_pc = purifyTaggedAddr(vec_address, tc, toEL, true);
     DPRINTF(Faults, "Invoking Fault (AArch64 target EL):%s cpsr:%#x PC:%#x "
             "elr:%#x newVec: %#x %s\n", name(), cpsr, curr_pc, ret_addr,
             new_pc, arm_inst ? csprintf("inst: %#x", arm_inst->encoding()) :
@@ -800,9 +800,9 @@ UndefinedInstruction::routeToHyp(ThreadContext *tc) const
     CPSR cpsr = tc->readMiscRegNoEffect(MISCREG_CPSR);
 
     // if in Hyp mode then stay in Hyp mode
-    toHyp  = scr.ns && (cpsr.mode == MODE_HYP);
+    toHyp  = scr.ns && (currEL(tc) == EL2);
     // if HCR.TGE is set to 1, take to Hyp mode through Hyp Trap vector
-    toHyp |= !inSecureState(scr, cpsr) && hcr.tge && (cpsr.mode == MODE_USER);
+    toHyp |= !inSecureState(scr, cpsr) && hcr.tge && (currEL(tc) == EL0);
     return toHyp;
 }
 
@@ -845,15 +845,8 @@ SupervisorCall::invoke(ThreadContext *tc, const StaticInstPtr &inst)
 
     // As of now, there isn't a 32 bit thumb version of this instruction.
     assert(!machInst.bigThumb);
-    uint32_t callNum;
-    CPSR cpsr = tc->readMiscReg(MISCREG_CPSR);
-    OperatingMode mode = (OperatingMode)(uint8_t)cpsr.mode;
-    if (opModeIs64(mode))
-        callNum = tc->readIntReg(INTREG_X8);
-    else
-        callNum = tc->readIntReg(INTREG_R7);
     Fault fault;
-    tc->syscall(callNum, &fault);
+    tc->syscall(&fault);
 
     // Advance the PC since that won't happen automatically.
     PCState pc = tc->pcState();
@@ -874,7 +867,7 @@ SupervisorCall::routeToHyp(ThreadContext *tc) const
     // if in Hyp mode then stay in Hyp mode
     toHyp  = scr.ns && (cpsr.mode == MODE_HYP);
     // if HCR.TGE is set to 1, take to Hyp mode through Hyp Trap vector
-    toHyp |= !inSecureState(scr, cpsr) && hcr.tge && (cpsr.mode == MODE_USER);
+    toHyp |= !inSecureState(scr, cpsr) && hcr.tge && (currEL(tc) == EL0);
     return toHyp;
 }
 
@@ -1283,16 +1276,15 @@ PrefetchAbort::routeToHyp(ThreadContext *tc) const
 
     SCR  scr  = tc->readMiscRegNoEffect(MISCREG_SCR);
     HCR  hcr  = tc->readMiscRegNoEffect(MISCREG_HCR);
-    CPSR cpsr = tc->readMiscRegNoEffect(MISCREG_CPSR);
     HDCR hdcr = tc->readMiscRegNoEffect(MISCREG_HDCR);
 
     // if in Hyp mode then stay in Hyp mode
-    toHyp  = scr.ns && (cpsr.mode == MODE_HYP);
+    toHyp = scr.ns && (currEL(tc) == EL2);
     // otherwise, check whether to take to Hyp mode through Hyp Trap vector
     toHyp |= (stage2 ||
-                ( (source ==               DebugEvent) && hdcr.tde && (cpsr.mode !=  MODE_HYP)) ||
-                ( (source == SynchronousExternalAbort) && hcr.tge  && (cpsr.mode == MODE_USER))
-             ) && !inSecureState(tc);
+              ((source == DebugEvent) && hdcr.tde && (currEL(tc) != EL2)) ||
+               ((source == SynchronousExternalAbort) && hcr.tge &&
+                (currEL(tc) == EL0))) && !inSecureState(tc);
     return toHyp;
 }
 
@@ -1344,21 +1336,18 @@ DataAbort::routeToHyp(ThreadContext *tc) const
 
     SCR  scr  = tc->readMiscRegNoEffect(MISCREG_SCR);
     HCR  hcr  = tc->readMiscRegNoEffect(MISCREG_HCR);
-    CPSR cpsr = tc->readMiscRegNoEffect(MISCREG_CPSR);
     HDCR hdcr = tc->readMiscRegNoEffect(MISCREG_HDCR);
 
     // if in Hyp mode then stay in Hyp mode
-    toHyp  = scr.ns && (cpsr.mode == MODE_HYP);
+    toHyp = scr.ns && (currEL(tc) == EL2);
     // otherwise, check whether to take to Hyp mode through Hyp Trap vector
     toHyp |= (stage2 ||
-                ( (cpsr.mode != MODE_HYP) && ( ((source == AsynchronousExternalAbort) && hcr.amo) ||
-                                               ((source == DebugEvent) && hdcr.tde) )
-                ) ||
-                ( (cpsr.mode == MODE_USER) && hcr.tge &&
-                  ((source == AlignmentFault)            ||
-                   (source == SynchronousExternalAbort))
-                )
-             ) && !inSecureState(tc);
+              ((currEL(tc) != EL2) &&
+               (((source == AsynchronousExternalAbort) && hcr.amo) ||
+                ((source == DebugEvent) && hdcr.tde))) ||
+               ((currEL(tc) == EL0) && hcr.tge &&
+                ((source == AlignmentFault) ||
+                 (source == SynchronousExternalAbort)))) && !inSecureState(tc);
     return toHyp;
 }
 
@@ -1417,6 +1406,9 @@ DataAbort::annotate(AnnotationIDs id, uint64_t val)
         break;
       case CM:
         cm  = val;
+        break;
+      case OFA:
+        faultAddr  = val;
         break;
       // Just ignore unknown ID's
       default:
@@ -1548,6 +1540,14 @@ PCAlignmentFault::routeToHyp(ThreadContext *tc) const
 
 SPAlignmentFault::SPAlignmentFault()
 {}
+
+bool
+SPAlignmentFault::routeToHyp(ThreadContext *tc) const
+{
+    assert(from64);
+    HCR hcr  = tc->readMiscRegNoEffect(MISCREG_HCR_EL2);
+    return EL2Enabled(tc) && hcr.tge==1;
+}
 
 SystemError::SystemError()
 {}

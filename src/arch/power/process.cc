@@ -226,7 +226,7 @@ PowerProcess::argsInit(int intSize, int pageSize)
 
     // figure out argc
     uint32_t argc = argv.size();
-    uint32_t guestArgc = PowerISA::htog(argc);
+    uint32_t guestArgc = htobe(argc);
 
     //Write out the sentry void *
     uint32_t sentry_NULL = 0;
@@ -277,13 +277,6 @@ PowerProcess::getSyscallArg(ThreadContext *tc, int &i)
 {
     assert(i < 5);
     return tc->readIntReg(ArgumentReg0 + i++);
-}
-
-void
-PowerProcess::setSyscallArg(ThreadContext *tc, int i, RegVal val)
-{
-    assert(i < 5);
-    tc->setIntReg(ArgumentReg0 + i, val);
 }
 
 void

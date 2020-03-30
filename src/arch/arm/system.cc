@@ -44,11 +44,12 @@
 
 #include <iostream>
 
+#include "arch/arm/faults.hh"
 #include "arch/arm/semihosting.hh"
 #include "base/loader/object_file.hh"
 #include "base/loader/symtab.hh"
 #include "cpu/thread_context.hh"
-#include "dev/arm/gic_v3.hh"
+#include "dev/arm/gic_v2.hh"
 #include "mem/fs_translating_port_proxy.hh"
 #include "mem/physical.hh"
 #include "sim/full_system.hh"
@@ -75,9 +76,6 @@ ArmSystem::ArmSystem(Params *p)
       _sveVL(p->sve_vl),
       _haveLSE(p->have_lse),
       _havePAN(p->have_pan),
-      _m5opRange(p->m5ops_base ?
-                 RangeSize(p->m5ops_base, 0x10000) :
-                 AddrRange(1, 0)), // Create an empty range if disabled
       semihosting(p->semihosting),
       multiProc(p->multi_proc)
 {
@@ -139,10 +137,20 @@ ArmSystem::initState()
     // Call the initialisation of the super class
     System::initState();
 
+    // Reset CP15?? What does that mean -- ali
+
+    // FPEXC.EN = 0
+
+    for (auto *tc: threadContexts) {
+        Reset().invoke(tc);
+        tc->activate();
+    }
+
     const Params* p = params();
 
     if (bootldr) {
-        bool isGICv3System = dynamic_cast<Gicv3 *>(getGIC()) != nullptr;
+        bool is_gic_v2 =
+            getGIC()->supportsVersion(BaseGic::GicVersion::GIC_V2);
         bootldr->buildImage().write(physProxy);
 
         inform("Using bootloader at address %#x\n", bootldr->entryPoint());
@@ -153,14 +161,14 @@ ArmSystem::initState()
         if (!p->flags_addr)
            fatal("flags_addr must be set with bootloader\n");
 
-        if (!p->gic_cpu_addr && !isGICv3System)
+        if (!p->gic_cpu_addr && is_gic_v2)
             fatal("gic_cpu_addr must be set with bootloader\n");
 
         for (int i = 0; i < threadContexts.size(); i++) {
             if (!_highestELIs64)
                 threadContexts[i]->setIntReg(3, (kernelEntry & loadAddrMask) +
                         loadAddrOffset);
-            if (!isGICv3System)
+            if (is_gic_v2)
                 threadContexts[i]->setIntReg(4, params()->gic_cpu_addr);
             threadContexts[i]->setIntReg(5, params()->flags_addr);
         }

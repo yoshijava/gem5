@@ -116,6 +116,10 @@ class BaseCPU : public ::BaseCPU
         periodAttribute->value = clockPeriod();
         clockEvent->notify();
     }
+
+    void init() override;
+
+    void serializeThread(CheckpointOut &cp, ThreadID tid) const override;
 };
 
 // This class specializes the one above and sets up ThreadContexts based on
@@ -135,7 +139,8 @@ class CPU : public Iris::BaseCPU
         int thread_id = 0;
         for (const std::string &sub_path: params->thread_paths) {
             std::string path = parent_path + "." + sub_path;
-            auto *tc = new TC(this, thread_id++, sys, iris_if, path);
+            auto *tc = new TC(this, thread_id++, sys,
+                    params->dtb, params->itb,iris_if, path);
             threadContexts.push_back(tc);
         }
     }
